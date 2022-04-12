@@ -25,3 +25,4 @@ If you are running this on a CSL instructional machine, these are taken care of.
 Otherwise, you need:
  * a modern C++ compiler (gcc version 4.6 or higher, any recent version of clang)
  * doxygen (version 1.4 or higher)
+# BadgerDB-Buffer-Manager
