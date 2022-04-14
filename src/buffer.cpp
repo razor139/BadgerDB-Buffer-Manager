@@ -98,10 +98,15 @@ namespace badgerdb
 	void BufMgr::readPage(File *file, const PageId pageNo, Page *&page)
 	{
 		FrameId frame;
-		hashTable->lookup(file, pageNo, frame);
+		try {
+			hashTable->lookup(file, pageNo, frame);
 
-		if (frame == 0) // TODO: check this
-		{
+			// page is in buffer pool
+			bufDescTable[frame].refbit = true;
+			bufDescTable[frame].pinCnt++;
+			page = &bufPool[frame];
+		} catch (HashNotFoundException e) {
+
 			// page not in buffer pool
 			allocBuf(frame);
 			bufPool[frame] = bufDescTable[frame].file->readPage(pageNo);
@@ -109,37 +114,32 @@ namespace badgerdb
 			bufDescTable[frame].Set(file, pageNo);
 			page = &bufPool[frame];
 		}
-		else
-		{
-			// page is in buffer pool
-			bufDescTable[frame].refbit = true;
-			bufDescTable[frame].pinCnt++;
-			page = &bufPool[frame];
-		}
 	}
 
 	void BufMgr::unPinPage(File *file, const PageId pageNo, const bool dirty)
 	{
-		for (FrameId i = 0; i < numBufs; i++)
-		{
-			if (bufDescTable[i].file == file && bufDescTable[i].pageNo == pageNo)
+		FrameId frame;
+		try {
+			hashTable->lookup(file, pageNo, frame);
+
+			if (bufDescTable[frame].file == file && bufDescTable[frame].pageNo == pageNo)
 			{
-				if (bufDescTable[i].pinCnt == 0)
+				if (bufDescTable[frame].pinCnt == 0)
 				{
-					throw PageNotPinnedException(bufDescTable[i].file->filename(), bufDescTable[i].pageNo, i);
+					throw PageNotPinnedException(bufDescTable[frame].file->filename(), bufDescTable[frame].pageNo, frame);
 				}
 				else
 				{
-					bufDescTable[i].pinCnt--;
+					bufDescTable[frame].pinCnt--;
 					if (dirty == true)
 					{
-						bufDescTable[i].dirty = true;
+						bufDescTable[frame].dirty = true;
 					}
 				}
 				return;
 			}
+		} catch (HashNotFoundException e) {
 		}
-		// TODO : Need to throw exception if file or Page not found throw BadBufferException();
 	}
 
 	void BufMgr::flushFile(const File *file)
@@ -168,39 +168,38 @@ namespace badgerdb
 		}
 	}
 
-	void BufMgr::allocPage(File *file, PageId &pageNo, Page *&page)
+	void BufMgr::allocPage(File *file, PageId &pageNo, Page* &page)
 	{
-		Page page1 = file->allocatePage();
-		page = &page1;
-		pageNo = page->page_number();
+		Page temp_page = file->allocatePage();
 
 		FrameId frame;
 		allocBuf(frame);
-		bufPool[frame] = page1;
+		bufPool[frame] = temp_page;
+
+		page = &bufPool[frame];
+		pageNo = page->page_number();
+
 		hashTable->insert(file, pageNo, frame);
 		bufDescTable[frame].Set(file, pageNo);
 	}
 
 	void BufMgr::disposePage(File *file, const PageId PageNo)
 	{
-		for (FrameId i = 0; i < numBufs; i++)
-		{
-			if (bufDescTable[i].file == file && bufDescTable[i].pageNo == PageNo)
+		FrameId frame;
+		try {
+			hashTable->lookup(file, PageNo, frame);
+
+			if (bufDescTable[frame].pinCnt > 0)
 			{
-				if (bufDescTable[i].pinCnt > 0)
-				{
-					throw PagePinnedException(bufDescTable[i].file->filename(), bufDescTable[i].pageNo, i);
-				}
-				else
-				{
-					bufDescTable[i].Clear();
-					hashTable->remove(file, PageNo);
-					bufDescTable[i].file->deletePage(bufDescTable[i].pageNo);
-				}
-				return;
+				throw PagePinnedException(file->filename(), PageNo, frame);
 			}
+			bufDescTable[frame].Clear();
+			hashTable->remove(file, PageNo);
+		} catch (HashNotFoundException e) {
+
 		}
-		// TODO : Need to throw exception if file or Page not found throw BadBufferException();
+
+		file->deletePage(PageNo);
 	}
 
 	void BufMgr::printSelf(void)
