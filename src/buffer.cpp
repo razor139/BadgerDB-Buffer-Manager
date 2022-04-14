@@ -38,6 +38,18 @@ namespace badgerdb
 
 	BufMgr::~BufMgr()
 	{
+		for (FrameId i = 0; i < BufMgr::numBufs; i++) // for each Frame
+		{
+			if (bufDescTable[i].dirty == true)
+			{
+				bufDescTable[i].file->writePage(bufPool[i]); // write dirty page to disk
+			}
+			hashTable->remove(bufDescTable[i].file, bufDescTable[i].pageNo);
+			bufDescTable[i].Clear();
+		}
+		delete[] bufDescTable;
+		delete[] bufPool;
+		delete hashTable;
 	}
 
 	void BufMgr::advanceClock()
@@ -48,7 +60,8 @@ namespace badgerdb
 	void BufMgr::allocBuf(FrameId &frame)
 	{
 		// find a frame to allocate
-		while (true)
+		FrameId i;
+		for (i = 0; i < numBufs; i++)
 		{
 			advanceClock();
 			if (bufDescTable[clockHand].valid == false)
@@ -68,11 +81,17 @@ namespace badgerdb
 				{
 					// bufDescTable[clockHand].file->writePage(bufDescTable[clockHand].pageNo, bufPool[clockHand]);
 					bufDescTable[clockHand].file->writePage(bufPool[clockHand]);
+					hashTable->remove(bufDescTable[clockHand].file, bufDescTable[clockHand].pageNo);
 					bufDescTable[clockHand].dirty = false;
 				}
 				frame = clockHand;
 				break;
 			}
+		}
+
+		if (i == numBufs)
+		{
+			throw BufferExceededException();
 		}
 	}
 
@@ -81,7 +100,7 @@ namespace badgerdb
 		FrameId frame;
 		hashTable->lookup(file, pageNo, frame);
 
-		if (frame == NULL) // TODO: check this
+		if (frame == 0) // TODO: check this
 		{
 			// page not in buffer pool
 			allocBuf(frame);
@@ -101,7 +120,7 @@ namespace badgerdb
 
 	void BufMgr::unPinPage(File *file, const PageId pageNo, const bool dirty)
 	{
-		for (FrameId i = 0; i < BufMgr::numBufs; i++)
+		for (FrameId i = 0; i < numBufs; i++)
 		{
 			if (bufDescTable[i].file == file && bufDescTable[i].pageNo == pageNo)
 			{
@@ -125,10 +144,18 @@ namespace badgerdb
 
 	void BufMgr::flushFile(const File *file)
 	{
-		for (FrameId i = 0; i < BufMgr::numBufs; i++)
+		for (FrameId i = 0; i < numBufs; i++)
 		{
 			if (bufDescTable[i].file == file)
 			{
+				if (bufDescTable[i].valid == false)
+				{
+					throw BadBufferException(i, bufDescTable[i].dirty, bufDescTable[i].valid, bufDescTable[i].refbit);
+				}
+				if (bufDescTable[i].pinCnt > 0)
+				{
+					throw PagePinnedException(bufDescTable[i].file->filename(), bufDescTable[i].pageNo, i);
+				}
 				if (bufDescTable[i].dirty == true)
 				{
 					// bufDescTable[i].file->writePage(bufDescTable[i].pageNo, bufPool[i]);
@@ -143,19 +170,20 @@ namespace badgerdb
 
 	void BufMgr::allocPage(File *file, PageId &pageNo, Page *&page)
 	{
-		page = &file->allocatePage();
+		Page page1 = file->allocatePage();
+		page = &page1;
 		pageNo = page->page_number();
 
 		FrameId frame;
 		allocBuf(frame);
-		bufPool[frame] = *page;
+		bufPool[frame] = page1;
 		hashTable->insert(file, pageNo, frame);
 		bufDescTable[frame].Set(file, pageNo);
 	}
 
 	void BufMgr::disposePage(File *file, const PageId PageNo)
 	{
-		for (FrameId i = 0; i < BufMgr::numBufs; i++)
+		for (FrameId i = 0; i < numBufs; i++)
 		{
 			if (bufDescTable[i].file == file && bufDescTable[i].pageNo == PageNo)
 			{
