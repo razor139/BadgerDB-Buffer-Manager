@@ -61,12 +61,14 @@ namespace badgerdb
 	{
 		// find a frame to allocate
 		FrameId i;
-		for (i = 0; i < numBufs; i++)
+		bool found = false;
+		for (i = 0; i <= numBufs; i++)
 		{
 			advanceClock();
 			if (bufDescTable[clockHand].valid == false)
 			{
 				frame = clockHand;
+				found = true;
 				break;
 			}
 			else if (bufDescTable[clockHand].refbit == true)
@@ -82,14 +84,15 @@ namespace badgerdb
 					// bufDescTable[clockHand].file->writePage(bufDescTable[clockHand].pageNo, bufPool[clockHand]);
 					bufDescTable[clockHand].file->writePage(bufPool[clockHand]);
 					hashTable->remove(bufDescTable[clockHand].file, bufDescTable[clockHand].pageNo);
-					bufDescTable[clockHand].dirty = false;
+					bufDescTable[clockHand].Clear();
 				}
 				frame = clockHand;
+				found = true;
 				break;
 			}
 		}
 
-		if (i == numBufs)
+		if (found == false)
 		{
 			throw BufferExceededException();
 		}
@@ -98,20 +101,23 @@ namespace badgerdb
 	void BufMgr::readPage(File *file, const PageId pageNo, Page *&page)
 	{
 		FrameId frame;
-		try {
+		try
+		{
 			hashTable->lookup(file, pageNo, frame);
 
 			// page is in buffer pool
 			bufDescTable[frame].refbit = true;
 			bufDescTable[frame].pinCnt++;
 			page = &bufPool[frame];
-		} catch (HashNotFoundException e) {
+		}
+		catch (HashNotFoundException e)
+		{
 
 			// page not in buffer pool
 			allocBuf(frame);
+			bufDescTable[frame].Set(file, pageNo);
 			bufPool[frame] = bufDescTable[frame].file->readPage(pageNo);
 			hashTable->insert(file, pageNo, bufDescTable[frame].frameNo);
-			bufDescTable[frame].Set(file, pageNo);
 			page = &bufPool[frame];
 		}
 	}
@@ -119,7 +125,8 @@ namespace badgerdb
 	void BufMgr::unPinPage(File *file, const PageId pageNo, const bool dirty)
 	{
 		FrameId frame;
-		try {
+		try
+		{
 			hashTable->lookup(file, pageNo, frame);
 
 			if (bufDescTable[frame].file == file && bufDescTable[frame].pageNo == pageNo)
@@ -136,9 +143,10 @@ namespace badgerdb
 						bufDescTable[frame].dirty = true;
 					}
 				}
-				return;
 			}
-		} catch (HashNotFoundException e) {
+		}
+		catch (HashNotFoundException e)
+		{
 		}
 	}
 
@@ -168,7 +176,7 @@ namespace badgerdb
 		}
 	}
 
-	void BufMgr::allocPage(File *file, PageId &pageNo, Page* &page)
+	void BufMgr::allocPage(File *file, PageId &pageNo, Page *&page)
 	{
 		Page temp_page = file->allocatePage();
 
@@ -186,7 +194,8 @@ namespace badgerdb
 	void BufMgr::disposePage(File *file, const PageId PageNo)
 	{
 		FrameId frame;
-		try {
+		try
+		{
 			hashTable->lookup(file, PageNo, frame);
 
 			if (bufDescTable[frame].pinCnt > 0)
@@ -195,8 +204,9 @@ namespace badgerdb
 			}
 			bufDescTable[frame].Clear();
 			hashTable->remove(file, PageNo);
-		} catch (HashNotFoundException e) {
-
+		}
+		catch (HashNotFoundException e)
+		{
 		}
 
 		file->deletePage(PageNo);
