@@ -38,14 +38,14 @@ namespace badgerdb
 
 	BufMgr::~BufMgr()
 	{
+		// printf("inside destructor of BufMgr\n");
 		for (FrameId i = 0; i < BufMgr::numBufs; i++) // for each Frame
 		{
-			if (bufDescTable[i].dirty == true)
+			if (bufDescTable[i].file != NULL && bufDescTable[i].file->isOpen(bufDescTable[i].file->filename()) && bufDescTable[i].dirty == true)
 			{
 				bufDescTable[i].file->writePage(bufPool[i]); // write dirty page to disk
+				bufDescTable[i].Clear();
 			}
-			hashTable->remove(bufDescTable[i].file, bufDescTable[i].pageNo);
-			bufDescTable[i].Clear();
 		}
 		delete[] bufDescTable;
 		delete[] bufPool;
@@ -60,41 +60,49 @@ namespace badgerdb
 	void BufMgr::allocBuf(FrameId &frame)
 	{
 		// find a frame to allocate
-		FrameId i;
-		bool found = false;
-		for (i = 0; i <= numBufs; i++)
+
+		bool foundUnpin = false;
+		FrameId start = clockHand;
+		// printf("start: %d\n", start);
+		while (1)
 		{
 			advanceClock();
+
 			if (bufDescTable[clockHand].valid == false)
 			{
+				// printf("found unpinned buffer: %d\n", clockHand);
 				frame = clockHand;
-				found = true;
-				break;
+				return;
 			}
-			else if (bufDescTable[clockHand].refbit == true)
-			{
-				bufDescTable[clockHand].refbit = false;
-			}
-
 			else if (bufDescTable[clockHand].pinCnt == 0)
 			{
-				// if the frame is dirty, write it back to disk
-				if (bufDescTable[clockHand].dirty == true)
+				foundUnpin = true;
+				if (bufDescTable[clockHand].refbit == false)
 				{
-					// bufDescTable[clockHand].file->writePage(bufDescTable[clockHand].pageNo, bufPool[clockHand]);
-					bufDescTable[clockHand].file->writePage(bufPool[clockHand]);
-					hashTable->remove(bufDescTable[clockHand].file, bufDescTable[clockHand].pageNo);
-					bufDescTable[clockHand].Clear();
+					// if the frame is dirty, write it back to disk
+					if (bufDescTable[clockHand].dirty == true)
+					{
+						// bufDescTable[clockHand].file->writePage(bufDescTable[clockHand].pageNo, bufPool[clockHand]);
+						bufDescTable[clockHand].file->writePage(bufPool[clockHand]);
+						hashTable->remove(bufDescTable[clockHand].file, bufDescTable[clockHand].pageNo);
+						bufDescTable[clockHand].Clear();
+					}
+					// printf("found unpinned buffer: %d\n", clockHand);
+					frame = clockHand;
+					return;
 				}
-				frame = clockHand;
-				found = true;
-				break;
 			}
-		}
-
-		if (found == false)
-		{
-			throw BufferExceededException();
+			bufDescTable[clockHand].refbit = false;
+			if (clockHand == start) // if we've looped around
+			{
+				if (foundUnpin == false)
+				{
+					// printf("ERROR: no unpinned buffers available with clockhand: %d\n", clockHand);
+					throw BufferExceededException();
+				}
+				else
+					foundUnpin = false;
+			}
 		}
 	}
 
@@ -115,9 +123,9 @@ namespace badgerdb
 
 			// page not in buffer pool
 			allocBuf(frame);
+			bufPool[frame] = file->readPage(pageNo);
 			bufDescTable[frame].Set(file, pageNo);
-			bufPool[frame] = bufDescTable[frame].file->readPage(pageNo);
-			hashTable->insert(file, pageNo, bufDescTable[frame].frameNo);
+			hashTable->insert(file, pageNo, frame);
 			page = &bufPool[frame];
 		}
 	}
@@ -129,20 +137,16 @@ namespace badgerdb
 		{
 			hashTable->lookup(file, pageNo, frame);
 
-			if (bufDescTable[frame].file == file && bufDescTable[frame].pageNo == pageNo)
+			if (bufDescTable[frame].pinCnt == 0)
 			{
-				if (bufDescTable[frame].pinCnt == 0)
-				{
-					throw PageNotPinnedException(bufDescTable[frame].file->filename(), bufDescTable[frame].pageNo, frame);
-				}
-				else
-				{
-					bufDescTable[frame].pinCnt--;
-					if (dirty == true)
-					{
-						bufDescTable[frame].dirty = true;
-					}
-				}
+				throw PageNotPinnedException(bufDescTable[frame].file->filename(), pageNo, frame);
+			}
+
+			bufDescTable[frame].pinCnt--;
+			// printf("New pincnt : %d\n", bufDescTable[frame].pinCnt);
+			if (dirty == true)
+			{
+				bufDescTable[frame].dirty = true;
 			}
 		}
 		catch (HashNotFoundException e)
@@ -185,10 +189,10 @@ namespace badgerdb
 		bufPool[frame] = temp_page;
 
 		page = &bufPool[frame];
-		pageNo = page->page_number();
+		pageNo = temp_page.page_number();
 
-		hashTable->insert(file, pageNo, frame);
 		bufDescTable[frame].Set(file, pageNo);
+		hashTable->insert(file, pageNo, frame);
 	}
 
 	void BufMgr::disposePage(File *file, const PageId PageNo)
