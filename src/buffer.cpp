@@ -21,7 +21,6 @@
 namespace badgerdb
 {
 
-
 	/**
 	 * @brief Constructor for BufDesc: Creates a new BufDesc object as a table and
 	 * sets the values.
@@ -84,34 +83,31 @@ namespace badgerdb
 	void BufMgr::allocBuf(FrameId &frame)
 	{
 		// find a frame to allocate
-
 		bool foundUnpin = false;
 		FrameId start = clockHand;
-		// printf("start: %d\n", start);
 		while (1)
 		{
 			advanceClock();
 
 			if (bufDescTable[clockHand].valid == false)
 			{
-				// printf("found unpinned buffer: %d\n", clockHand);
+				// found a frame to allocate since valid bit is false
 				frame = clockHand;
 				return;
 			}
 			else if (bufDescTable[clockHand].pinCnt == 0)
 			{
-				foundUnpin = true;
+				foundUnpin = true; // found a potential frame to allocate since pin count is 0
 				if (bufDescTable[clockHand].refbit == false)
 				{
 					// if the frame is dirty, write it back to disk
 					if (bufDescTable[clockHand].dirty == true)
 					{
-						// bufDescTable[clockHand].file->writePage(bufDescTable[clockHand].pageNo, bufPool[clockHand]);
 						bufDescTable[clockHand].file->writePage(bufPool[clockHand]);
 						hashTable->remove(bufDescTable[clockHand].file, bufDescTable[clockHand].pageNo);
 						bufDescTable[clockHand].Clear();
 					}
-					// printf("found unpinned buffer: %d\n", clockHand);
+
 					frame = clockHand;
 					return;
 				}
@@ -119,9 +115,8 @@ namespace badgerdb
 			bufDescTable[clockHand].refbit = false;
 			if (clockHand == start) // if we've looped around
 			{
-				if (foundUnpin == false)
+				if (foundUnpin == false) // Throw exception if all pages are pinned
 				{
-					// printf("ERROR: no unpinned buffers available with clockhand: %d\n", clockHand);
 					throw BufferExceededException();
 				}
 				else
@@ -170,7 +165,7 @@ namespace badgerdb
 	 * @param file   	File object
 	 * @param PageNo  Page number
 	 * @param dirty		True if the page to be unpinned needs to be marked dirty
-     * @throws  PageNotPinnedException If the page is not already pinned
+	 * @throws  PageNotPinnedException If the page is not already pinned
 	 */
 	void BufMgr::unPinPage(File *file, const PageId pageNo, const bool dirty)
 	{
@@ -179,13 +174,12 @@ namespace badgerdb
 		{
 			hashTable->lookup(file, pageNo, frame);
 
-			if (bufDescTable[frame].pinCnt == 0)
+			if (bufDescTable[frame].pinCnt == 0) // Throw exception if Page is already unpinned
 			{
 				throw PageNotPinnedException(bufDescTable[frame].file->filename(), pageNo, frame);
 			}
 
 			bufDescTable[frame].pinCnt--;
-			// printf("New pincnt : %d\n", bufDescTable[frame].pinCnt);
 			if (dirty == true)
 			{
 				bufDescTable[frame].dirty = true;
@@ -202,8 +196,8 @@ namespace badgerdb
 	 * Otherwise Error returned.
 	 *
 	 * @param file   	File object
-     * @throws  PagePinnedException If any page of the file is pinned in the buffer pool
-     * @throws BadBufferException If any frame allocated to the file is found to be invalid
+	 * @throws  PagePinnedException If any page of the file is pinned in the buffer pool
+	 * @throws BadBufferException If any frame allocated to the file is found to be invalid
 	 */
 	void BufMgr::flushFile(const File *file)
 	{
