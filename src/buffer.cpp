@@ -1,8 +1,9 @@
 /**
- * @author See Contributors.txt for code contributors and overview of BadgerDB.
- *
+ * @author Adithya Anand (A59010781, UCSD), Mohit Shah (A59005444, UCSD)
+ * @brief BadgerDB which maintains, initialises and provides functionality to the buffer manager and the buffer pool,
+ * along with defining the clock replacement algorithm.
  * @section LICENSE
- * Copyright (c) 2012 Database Group, Computer Sciences Department, University of Wisconsin-Madison.
+ * Partial copyright (c) 2012 Database Group, Computer Sciences Department, University of Wisconsin-Madison.
  */
 
 #include <memory>
@@ -14,9 +15,21 @@
 #include "exceptions/bad_buffer_exception.h"
 #include "exceptions/hash_not_found_exception.h"
 
+/**
+ * @brief Class for maintaining badgerdb
+ */
 namespace badgerdb
 {
 
+
+	/**
+	 * @brief Constructor for BufDesc: Creates a new BufDesc object as a table and
+	 * sets the values.
+	 * Also creates a pool of frames for the buffer manager to hold pages
+	 * Also creates a hash table to store the frames
+	 *
+	 * @param bufs Number of buffer frames to be created
+	 */
 	BufMgr::BufMgr(std::uint32_t bufs)
 		: numBufs(bufs)
 	{
@@ -36,9 +49,11 @@ namespace badgerdb
 		clockHand = bufs - 1;
 	}
 
+	/**
+	 * @brief Destructor for BufMgr: Deallocate all relevant memory
+	 */
 	BufMgr::~BufMgr()
 	{
-		// printf("inside destructor of BufMgr\n");
 		for (FrameId i = 0; i < BufMgr::numBufs; i++) // for each Frame
 		{
 			if (bufDescTable[i].file != NULL && bufDescTable[i].file->isOpen(bufDescTable[i].file->filename()) && bufDescTable[i].dirty == true)
@@ -52,11 +67,20 @@ namespace badgerdb
 		delete hashTable;
 	}
 
+	/**
+	 * @brief Increment the clock hand as part of the clock algorithm
+	 */
 	void BufMgr::advanceClock()
 	{
 		clockHand = (clockHand + 1) % numBufs;
 	}
 
+	/**
+	 * @brief Allocate a new free buffer frame.
+	 *
+	 * @param frame  The frame ID which gets determined after allocation, returned through this variable.
+	 * @throws BufferExceededException If no such buffer is found which can be allocated
+	 */
 	void BufMgr::allocBuf(FrameId &frame)
 	{
 		// find a frame to allocate
@@ -106,6 +130,16 @@ namespace badgerdb
 		}
 	}
 
+	/**
+	 * Reads the given page from the file into a frame and returns the pointer to page.
+	 * If the requested page is already present in the buffer pool pointer to that frame is returned
+	 * otherwise a new frame is allocated from the buffer pool for reading the page.
+	 *
+	 * @param file   	File object
+	 * @param PageNo    Page number in the file to be read
+	 * @param page  	Reference to page pointer. Used to fetch the Page object in which requested page from file is read in.
+	 * @throws InvalidPageException if the page requested does not exist in the file
+	 */
 	void BufMgr::readPage(File *file, const PageId pageNo, Page *&page)
 	{
 		FrameId frame;
@@ -130,6 +164,14 @@ namespace badgerdb
 		}
 	}
 
+	/**
+	 * Unpin a page from memory since it is no longer required for it to remain in memory.
+	 *
+	 * @param file   	File object
+	 * @param PageNo  Page number
+	 * @param dirty		True if the page to be unpinned needs to be marked dirty
+     * @throws  PageNotPinnedException If the page is not already pinned
+	 */
 	void BufMgr::unPinPage(File *file, const PageId pageNo, const bool dirty)
 	{
 		FrameId frame;
@@ -154,6 +196,15 @@ namespace badgerdb
 		}
 	}
 
+	/**
+	 * Writes out all dirty pages of the file to disk.
+	 * All the frames assigned to the file need to be unpinned from buffer pool before this function can be successfully called.
+	 * Otherwise Error returned.
+	 *
+	 * @param file   	File object
+     * @throws  PagePinnedException If any page of the file is pinned in the buffer pool
+     * @throws BadBufferException If any frame allocated to the file is found to be invalid
+	 */
 	void BufMgr::flushFile(const File *file)
 	{
 		for (FrameId i = 0; i < numBufs; i++)
@@ -180,6 +231,14 @@ namespace badgerdb
 		}
 	}
 
+	/**
+	 * Allocates a new, empty page in the file and returns the Page object.
+	 * The newly allocated page is also assigned a frame in the buffer pool.
+	 *
+	 * @param file   	File object
+	 * @param PageNo  Page number. The number assigned to the page in the file is returned via this reference.
+	 * @param page  	Reference to page pointer. The newly allocated in-memory Page object is returned via this reference.
+	 */
 	void BufMgr::allocPage(File *file, PageId &pageNo, Page *&page)
 	{
 		Page temp_page = file->allocatePage();
@@ -195,6 +254,13 @@ namespace badgerdb
 		hashTable->insert(file, pageNo, frame);
 	}
 
+	/**
+	 * Delete page from file and also from buffer pool if present.
+	 * Since the page is entirely deleted from file, its unnecessary to see if the page is dirty.
+	 *
+	 * @param file   	File object
+	 * @param PageNo  Page number
+	 */
 	void BufMgr::disposePage(File *file, const PageId PageNo)
 	{
 		FrameId frame;

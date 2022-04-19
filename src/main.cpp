@@ -1,3 +1,11 @@
+/**
+ * @author Adithya Anand (A59010781, UCSD), Mohit Shah (A59005444, UCSD)
+ * @brief Main function which initialises BadgerDB, and runs 12 tests according to the grading criteria shared
+
+ * @section LICENSE
+ * Partial copyright (c) 2012 Database Group, Computer Sciences Department, University of Wisconsin-Madison.
+ */
+
 #include <iostream>
 #include <stdlib.h>
 //#include <stdio.h>
