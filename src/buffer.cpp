@@ -201,6 +201,7 @@ namespace badgerdb
 	 */
 	void BufMgr::flushFile(const File *file)
 	{
+		// Check for each frame belonging to the file being flushed in the pool
 		for (FrameId i = 0; i < numBufs; i++)
 		{
 			if (bufDescTable[i].file == file)
@@ -213,12 +214,14 @@ namespace badgerdb
 				{
 					throw PagePinnedException(bufDescTable[i].file->filename(), bufDescTable[i].pageNo, i);
 				}
+				// if page in frame is dirty, write it back to disk
 				if (bufDescTable[i].dirty == true)
 				{
 					// bufDescTable[i].file->writePage(bufDescTable[i].pageNo, bufPool[i]);
 					bufDescTable[i].file->writePage(bufPool[i]);
 					bufDescTable[i].dirty = false;
 				}
+				// remove the page from the hash table and out of the buffer pool
 				hashTable->remove(bufDescTable[i].file, bufDescTable[i].pageNo);
 				bufDescTable[i].Clear();
 			}
@@ -244,6 +247,7 @@ namespace badgerdb
 		page = &bufPool[frame];
 		pageNo = temp_page.page_number();
 
+		// set and insert the page
 		bufDescTable[frame].Set(file, pageNo);
 		hashTable->insert(file, pageNo, frame);
 	}
@@ -260,13 +264,18 @@ namespace badgerdb
 		FrameId frame;
 		try
 		{
+			// find the frame ID of the page to dispose, if available in buffer pool
 			hashTable->lookup(file, PageNo, frame);
 
+			// check if the page is pinned
 			if (bufDescTable[frame].pinCnt > 0)
 			{
 				throw PagePinnedException(file->filename(), PageNo, frame);
 			}
+
+			// clear bufDescTable's frame of the page since it's getting disposed from the buffer pool
 			bufDescTable[frame].Clear();
+			// remove from hash table
 			hashTable->remove(file, PageNo);
 		}
 		catch (HashNotFoundException e)
